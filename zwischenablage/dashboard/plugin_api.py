@@ -1,7 +1,9 @@
 """zwischenablage — API unter /api/plugins/zwischenablage/.
 
-GET /clip liefert die Zwischenablage des Bot Screens, aber nur solange ein Mensch den
-Screen steuert (Lease `human`): was der Agent allein kopiert, verlaesst die VM nicht.
+GET /clip liefert die Zwischenablage des Bot Screens, den gerade ein Mensch steuert (Lease
+`human`): was der Agent allein kopiert, verlaesst die VM nicht. Gesucht wird ueber alle
+Profile desselben Nutzers — die Desktop-App schickt die Anfrage an das Profil, das sie gerade
+als Ziel fuehrt, und das muss nicht das Profil des Bot Screens sein.
 Der Weg hinein braucht keine API — die Desktop-App schickt den Text per ClientCutText.
 """
 from __future__ import annotations
@@ -27,6 +29,22 @@ def _home() -> Path:
         return Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
 
 
+def _screens() -> list[Path]:
+    """bot-desktop-Ordner aller Profile: Default-Home und profiles/*."""
+    home = _home()
+    root = home.parent.parent if home.parent.name == "profiles" else home
+    dirs = [root / "bot-desktop", *sorted((root / "profiles").glob("*/bot-desktop"))]
+    return [d for d in dirs if d.is_dir()]
+
+
+def _lease(bd: Path) -> dict:
+    try:
+        data = json.loads((bd / "lease.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _bot_env(bd: Path) -> dict | None:
     try:
         lines = (bd / "env").read_text(encoding="utf-8").splitlines()
@@ -40,18 +58,13 @@ def _bot_env(bd: Path) -> dict | None:
     return env if "DISPLAY" in env else None
 
 
-def _holder(bd: Path) -> str:
-    try:
-        return json.loads((bd / "lease.json").read_text(encoding="utf-8")).get("holder") or "agent"
-    except (OSError, ValueError):
-        return "agent"
-
-
 @router.get("/clip")
 def clip():
-    bd = _home() / "bot-desktop"
-    if _holder(bd) != "human":
+    # Der Screen, den zuletzt ein Mensch uebernommen hat
+    held = [(float(_lease(bd).get("since") or 0), bd) for bd in _screens() if _lease(bd).get("holder") == "human"]
+    if not held:
         return {"ok": False, "grund": "agent-steuert"}
+    bd = max(held)[1]
     env = _bot_env(bd)
     if env is None:
         return {"ok": False, "grund": "kein-screen"}
