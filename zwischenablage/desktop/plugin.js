@@ -8,6 +8,8 @@
 // nur wenn ein Mensch steuert) und legt ihn in die Zwischenablage deines Rechners.
 // Mac: Cmd+C/V/X kaeme im Bot Screen (Linux) als Alt+… an. Das Plugin uebersetzt sie in
 // Strg+C/V/X: Cmd im Bot Screen loslassen, Strg+Taste senden.
+import { host } from '@hermes/plugin-sdk'
+
 const SCREEN = '[data-remote-screen]'
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')
 
@@ -49,18 +51,36 @@ export default {
       if (p) sendCtrl(p.target, p)
     }
 
+    const GRUND = {
+      'agent-steuert': 'Der Agent steuert den Bot Screen – erst „Übernehmen“.',
+      'kein-screen': 'Für dieses Profil läuft kein Bot Screen.',
+      leer: 'Die Zwischenablage im Bot Screen ist leer.',
+      'zu-gross': 'Der kopierte Text ist größer als 256 KiB.',
+      timeout: 'Die Zwischenablage im Bot Screen antwortet nicht.'
+    }
+    // Nach Strg+C/X einmal sagen, warum nichts ankam (nur beim letzten Versuch)
+    const melde = text => host.notify({ kind: 'warning', title: 'Zwischenablage Bot Screen', message: text })
+
     // explicit = nach Strg+C/X: immer schreiben (derselbe Text kann erneut kopiert werden, auch
     // aus einem anderen Profil). Beim Verlassen des Screens nur, wenn sich im Bot Screen etwas
     // geaendert hat — sonst ueberschriebe jedes Rausfahren mit der Maus die PC-Zwischenablage.
-    const pull = async (explicit = false) => {
+    const pull = async (explicit = false, report = false) => {
       try {
         const r = await ctx.rest('/clip')
-        if (r && r.ok && typeof r.text === 'string' && (explicit || r.text !== lastOut)) {
-          lastOut = r.text
-          await ctx.os.writeClipboard(r.text)
+        if (r && r.ok && typeof r.text === 'string') {
+          if (explicit || r.text !== lastOut) {
+            lastOut = r.text
+            const ok = await ctx.os.writeClipboard(r.text)
+            if (!ok && report) melde('Die App hat das Schreiben in deine Zwischenablage abgelehnt.')
+          }
+        } else if (report) {
+          melde(GRUND[r && r.grund] || `Unerwartete Antwort der VM: ${JSON.stringify(r).slice(0, 200)}`)
         }
-      } catch {
-        // API aus oder Screen weg: still bleiben
+      } catch (err) {
+        if (report) {
+          melde(`Die VM-Schnittstelle antwortet nicht (${String(err && err.message || err).slice(0, 200)}). ` +
+            'Ist das Plugin in diesem Profil auf der VM installiert und eingeschaltet?')
+        }
       }
     }
 
@@ -81,7 +101,7 @@ export default {
           sendCtrl(e.target, k)
         }
         ctx.setTimeout(() => pull(true), 400)
-        ctx.setTimeout(() => pull(true), 1200)
+        ctx.setTimeout(() => pull(true, true), 1200)
       }
     }, true)
 
