@@ -1,4 +1,4 @@
-// Zwischenablage Bot Screen — Desktop-App-Teil (Spike).
+// Zwischenablage Bot Screen — Desktop-App-Teil.
 //
 // Rein: noVNC schluckt das keydown von Strg+V (preventDefault), deshalb feuert das native
 // paste-Event nie und die App schickt deinen Text nicht. Wir halten das keydown vor noVNC an,
@@ -6,10 +6,17 @@
 // ClientCutText, nur wenn du steuerst) und reichen Strg+V danach an noVNC weiter.
 // Raus: nach Strg+C/X im Bot Screen holt das Plugin den Text von der VM-API (/clip,
 // nur wenn ein Mensch steuert) und legt ihn in die Zwischenablage deines Rechners.
+// Mac: Cmd+C/V/X kaeme im Bot Screen (Linux) als Alt+… an. Das Plugin uebersetzt sie in
+// Strg+C/V/X: Cmd im Bot Screen loslassen, Strg+Taste senden.
 const SCREEN = '[data-remote-screen]'
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')
 
 const inScreen = el => Boolean(el && typeof el.closest === 'function' && el.closest(SCREEN))
-const isMod = e => (e.ctrlKey || e.metaKey) && !e.altKey
+// Die Kopier-/Einfuege-Taste der Plattform: Cmd am Mac, Strg sonst
+const isClipMod = e => !e.altKey && (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
+
+const key = (target, type, init) =>
+  target.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }))
 
 export default {
   id: 'zwischenablage',
@@ -19,21 +26,27 @@ export default {
     let pending = null
     let lastOut = null
 
-    const forward = () => {
-      const p = pending
-      pending = null
-      if (!p) return
+    // Strg+<Taste> an noVNC geben. Unter Windows/Linux ist Strg schon gedrueckt (noVNC hat es
+    // gesehen); am Mac zuerst Cmd im Bot Screen loesen und Strg selbst druecken.
+    const sendCtrl = (target, k) => {
       forwarding = true
       try {
-        for (const type of ['keydown', 'keyup']) {
-          p.target.dispatchEvent(new KeyboardEvent(type, {
-            key: p.key, code: p.code, ctrlKey: p.ctrlKey, metaKey: p.metaKey, shiftKey: p.shiftKey,
-            bubbles: true, cancelable: true
-          }))
+        if (IS_MAC) {
+          for (const code of ['MetaLeft', 'MetaRight']) key(target, 'keyup', { key: 'Meta', code })
+          key(target, 'keydown', { key: 'Control', code: 'ControlLeft', ctrlKey: true })
         }
+        key(target, 'keydown', { key: k.key, code: k.code, ctrlKey: true, shiftKey: k.shiftKey })
+        key(target, 'keyup', { key: k.key, code: k.code, ctrlKey: true, shiftKey: k.shiftKey })
+        if (IS_MAC) key(target, 'keyup', { key: 'Control', code: 'ControlLeft' })
       } finally {
         forwarding = false
       }
+    }
+
+    const forward = () => {
+      const p = pending
+      pending = null
+      if (p) sendCtrl(p.target, p)
     }
 
     const pull = async () => {
@@ -49,14 +62,21 @@ export default {
     }
 
     ctx.addEventListener(window, 'keydown', e => {
-      if (forwarding || !inScreen(e.target) || !isMod(e)) return
+      if (forwarding || !inScreen(e.target) || !isClipMod(e)) return
+      const k = { target: e.target, key: e.key.toLowerCase(), code: e.code, shiftKey: e.shiftKey }
       if (e.code === 'KeyV') {
         // noVNC darf dieses keydown nicht sehen, sonst kein paste-Event
         e.stopImmediatePropagation()
-        pending = { target: e.target, key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey }
+        pending = k
         // Kam kein paste-Event (leere/Nicht-Text-Zwischenablage), Taste trotzdem durchreichen
         ctx.setTimeout(forward, 250)
       } else if (e.code === 'KeyC' || e.code === 'KeyX') {
+        if (IS_MAC) {
+          // Cmd+C nicht als Alt+C ankommen lassen, sondern als Strg+C
+          e.stopImmediatePropagation()
+          e.preventDefault()
+          sendCtrl(e.target, k)
+        }
         ctx.setTimeout(pull, 400)
         ctx.setTimeout(pull, 1200)
       }
