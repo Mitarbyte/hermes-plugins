@@ -49,10 +49,13 @@ export default {
       if (p) sendCtrl(p.target, p)
     }
 
-    const pull = async () => {
+    // explicit = nach Strg+C/X: immer schreiben (derselbe Text kann erneut kopiert werden, auch
+    // aus einem anderen Profil). Beim Verlassen des Screens nur, wenn sich im Bot Screen etwas
+    // geaendert hat — sonst ueberschriebe jedes Rausfahren mit der Maus die PC-Zwischenablage.
+    const pull = async (explicit = false) => {
       try {
         const r = await ctx.rest('/clip')
-        if (r && r.ok && typeof r.text === 'string' && r.text !== lastOut) {
+        if (r && r.ok && typeof r.text === 'string' && (explicit || r.text !== lastOut)) {
           lastOut = r.text
           await ctx.os.writeClipboard(r.text)
         }
@@ -77,8 +80,8 @@ export default {
           e.preventDefault()
           sendCtrl(e.target, k)
         }
-        ctx.setTimeout(pull, 400)
-        ctx.setTimeout(pull, 1200)
+        ctx.setTimeout(() => pull(true), 400)
+        ctx.setTimeout(() => pull(true), 1200)
       }
     }, true)
 
