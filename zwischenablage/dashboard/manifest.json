@@ -1,0 +1,10 @@
+{
+  "name": "zwischenablage",
+  "label": "Zwischenablage Bot Screen",
+  "description": "Gleicht die Zwischenablage zwischen deinem Rechner und dem Bot Screen ab (Desktop-App-Teil: desktop/plugin.js).",
+  "icon": "Clipboard",
+  "version": "0.1.0",
+  "tab": { "path": "/zwischenablage", "hidden": true },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

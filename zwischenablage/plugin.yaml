@@ -1,0 +1,5 @@
+name: zwischenablage
+version: 0.1.0
+description: "Zwischenablage zwischen deinem Rechner und dem Bot Screen: Strg+C/Strg+V in beide Richtungen."
+author: Mitarbyte
+kind: standalone
